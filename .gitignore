@@ -1,0 +1,8 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+#exclude scraped files
+data/*.xlsx
+data/*.pdf
