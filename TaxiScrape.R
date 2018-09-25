@@ -7,8 +7,11 @@ library(dplyr)
 library(tidyr)
 library(rvest)
 library(purrr)
+library(stringr)
 library(readxl)
 library(ggplot2)
+library(tabulizer)
+library(pdftools)
 
 
 #---- Download the Files
@@ -36,12 +39,11 @@ dl <-
 download.file(dl$flink, paste0("data/", dl$file), method="libcurl")
 
 #---- Merge the files
-# or at least the xls ones
 
 # do this in a way that doesn't need the list above
-#first the excel files (assume we're in the project directory)
+#get the excel or pdf files (assume we're in the project directory), ignore anything else in the data directory
 xlf <- list.files(path="data/",
-                  pattern="?(.xlsx)")
+                  pattern="?(.xlsx)|(.pdf)")
 #summarise details
 xld <- data_frame(file=xlf, id=1:length(xlf)) %>% 
   mutate(
@@ -51,16 +53,21 @@ xld <- data_frame(file=xlf, id=1:length(xlf)) %>%
     year = substr(gsub("([^[:digit:]]*)|(20)","",file),1,2),
     #yr text is just the first letter of the season plus year digits, 2 digits, 4 digits could be 1516 
     #caution this version not valid for years 2020 onwards!
-    yrtext = paste0(year, substr(season,1,1)))
+    yrtext = paste0(year, substr(season,1,1)),
+    #file type is just the file extension
+    fileType = str_split_fixed(file, fixed("."), 2)[,2])
 
-#bang them together
+#bang the xlsx files together
 #we will need to tidy later!
-tim<- paste0("data/",xlf) %>% 
+tim<- paste0("data/", xld$file[xld$fileType == "xlsx"])  %>% 
   #merge the files and include an ID
   map_dfr(read_xlsx, .id = 'id') %>% 
   #add the date details
   mutate(id = as.integer(id)) %>% 
   left_join(xld %>% select(id, yrtext, season, year))
+
+#bang the pdf files together
+w <- tabulizer::extract_tables("data/coda-iata-taxi-out-summer-2011.pdf")
 
 #make the names tidier
 names(tim) <- gsub("[ ()]","",names(tim)) 
@@ -90,7 +97,19 @@ tim <- tim %>%
 timb <- tim %>% 
   gather("measure", "time", c(5:8,14))
 
-#--- First Graph
+#summarise details
+w <- data_frame(file=pdff, id=1:length(pdff)) %>% 
+  mutate(
+    season = case_when(
+      grepl("summer",file, ignore.case = T)|grepl("?-s[0:9]?",file, ignore.case = T) ~ "Summer",
+      T ~ "Winter"),
+    year = substr(gsub("([^[:digit:]]*)|(20)","",file),1,2),
+    #yr text is just the first letter of the season plus year digits, 2 digits, 4 digits could be 1516 
+    #caution this version not valid for years 2020 onwards!
+    yrtext = paste0(year, substr(season,1,1)))
+
+
+#---- First Graph
 
 
 ggplot(timb %>% filter(hasWTC == F, 
