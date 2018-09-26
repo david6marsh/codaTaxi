@@ -10,7 +10,6 @@ library(purrr)
 library(stringr)
 library(readxl)
 library(ggplot2)
-library(tabulizer)
 library(pdftools)
 
 
@@ -55,7 +54,8 @@ xld <- data_frame(file=xlf, id=1:length(xlf)) %>%
     #caution this version not valid for years 2020 onwards!
     yrtext = paste0(year, substr(season,1,1)),
     #file type is just the file extension
-    fileType = str_split_fixed(file, fixed("."), 2)[,2])
+    fileType = str_split_fixed(file, fixed("."), 2)[,2],
+    wake = str_detect(file, "wake"))
 
 #bang the xlsx files together
 #we will need to tidy later!
@@ -66,8 +66,39 @@ tim<- paste0("data/", xld$file[xld$fileType == "xlsx"])  %>%
   mutate(id = as.integer(id)) %>% 
   left_join(xld %>% select(id, yrtext, season, year))
 
+#we need to extract pdf text, and convert to dataframe for map_dfr to work cleanly
+#so a simple wrapper for pdftools::pdf_text
+pdf_df <- function(x){
+  data_frame(text = pdf_text(x))
+}
+
 #bang the pdf files together
-w <- tabulizer::extract_tables("data/coda-iata-taxi-out-summer-2011.pdf")
+#wake files are awkward, so ignore them
+w <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])[3:5]  %>%
+  map_dfr(pdf_df, .id = 'id') %>% 
+  separate_rows(text, sep="\n") %>% 
+  #we only want rows that start IATA-ICAO (4 letter, 3 letter)
+  filter(str_detect(text, "^(\\s)*[[:upper:]]{4}(\\s)*[[:upper:]]{3}(\\s)(.)*")) %>% 
+  #makes life easier if we assume a single space occurs only within an airport long name
+  #multiple spaces mark column boundaries
+  #almost true, so start with that and tidy up after
+  mutate(text = str_replace_all(text,"(\\s){2,}","#"),
+         #remove first # if any
+         text = str_replace(text, "^#", "")) %>%
+  #if at this stage we've not 7 #, then change the first space to a #
+  mutate(text2 = if_else(str_count(text, "#")==7, 
+                         text,
+                         str_replace(text, "(\\s)", "#"))) %>% 
+  #works for all but one line (with no airport name)
+  #so if at this stage still don't have 7 #, then assume we need a blank name
+  mutate(text2 = if_else(str_count(text2, "#")==7, 
+                         text2,
+                         str_replace(text2, "(#[[:upper:]]{3}#)", "\\1unknown#"))) %>% 
+  #then split and label
+  separate(text2, c("ICAO", "IATA", "Name", "mean", "stDev", "p10", "median", "p90"), sep="#")
+  
+
+  
 
 #make the names tidier
 names(tim) <- gsub("[ ()]","",names(tim)) 
