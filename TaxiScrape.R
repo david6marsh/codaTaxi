@@ -44,7 +44,7 @@ download.file(dl$flink, paste0("data/", dl$file), method="libcurl")
 xlf <- list.files(path="data/",
                   pattern="?(.xlsx)|(.pdf)")
 #summarise details
-xld <- data_frame(file=xlf, id=1:length(xlf)) %>% 
+xld <- data_frame(file=xlf) %>% 
   mutate(
     season = case_when(
       grepl("summer",file, ignore.case = T)|grepl("?-s[0:9]?",file, ignore.case = T) ~ "Summer",
@@ -55,7 +55,11 @@ xld <- data_frame(file=xlf, id=1:length(xlf)) %>%
     yrtext = paste0(year, substr(season,1,1)),
     #file type is just the file extension
     fileType = str_split_fixed(file, fixed("."), 2)[,2],
-    wake = str_detect(file, "wake"))
+    wake = str_detect(file, "wake")) %>% 
+  #can't take pdf and WTC so remove
+  filter(!(wake == T & fileType == "pdf")) %>% 
+  group_by(fileType) %>% 
+  mutate(id = 1:n())
 
 #bang the xlsx files together
 #we will need to tidy later!
@@ -63,8 +67,35 @@ tim<- paste0("data/", xld$file[xld$fileType == "xlsx"])  %>%
   #merge the files and include an ID
   map_dfr(read_xlsx, .id = 'id') %>% 
   #add the date details
-  mutate(id = as.integer(id)) %>% 
-  left_join(xld %>% select(id, yrtext, season, year))
+  mutate(id = as.integer(id),
+         fileType = "xlsx") %>% 
+  left_join(xld %>% select(id, fileType, yrtext, season, year))
+
+#make the names tidier
+names(tim) <- gsub("[ ()]","",names(tim)) 
+
+#careful, all this is case sensitive
+tim <- tim %>% 
+  mutate(TXI = coalesce(MeanTXIMins, MeanTXImins),
+         TXO = coalesce(MeanTXOMins, MeanTXOmins),
+         phase = if_else(is.na(TXI), "Out", "In"),
+         mean = coalesce(TXI, TXO)) %>% 
+  select(-starts_with("MeanTX"),
+         -TXI, -TXO) %>% 
+  #get rid of odd cases (such as disclaimer!)
+  filter(!is.na(mean)) %>% 
+  rename( "Name" = AirportName, 
+          "WTC" = WakeTurbulenceCategory,
+          "p10" = '10thPctl',
+          "p90" = '90thPctl',
+          "stDev" = StandardDeviation,
+          "median" = Median) %>% 
+  #in WTC data, airport details are not repeated so fill down
+  fill(ICAO, IATA, Name) %>% 
+  #create tidy WTC flag
+  mutate(hasWTC = if_else(is.na(WTC), F, T)) %>% 
+  select(-WTC)
+
 
 #we need to extract pdf text, and convert to dataframe for map_dfr to work cleanly
 #so a simple wrapper for pdftools::pdf_text
@@ -74,7 +105,7 @@ pdf_df <- function(x){
 
 #bang the pdf files together
 #wake files are awkward, so ignore them
-w <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])[3:5]  %>%
+timp <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])  %>%
   map_dfr(pdf_df, .id = 'id') %>% 
   separate_rows(text, sep="\n") %>% 
   #we only want rows that start IATA-ICAO (4 letter, 3 letter)
@@ -95,49 +126,22 @@ w <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])[3:5]  %>%
                          text2,
                          str_replace(text2, "(#[[:upper:]]{3}#)", "\\1unknown#"))) %>% 
   #then split and label
-  separate(text2, c("ICAO", "IATA", "Name", "mean", "stDev", "p10", "median", "p90"), sep="#")
-  
-
-  
-
-#make the names tidier
-names(tim) <- gsub("[ ()]","",names(tim)) 
-
-#careful, all this is case sensitive
-tim <- tim %>% 
-  mutate(TXI = coalesce(MeanTXIMins, MeanTXImins),
-         TXO = coalesce(MeanTXOMins, MeanTXOmins),
-         phase = if_else(is.na(TXI), "Out", "In"),
-         mean = coalesce(TXI, TXO)) %>% 
-  select(-starts_with("MeanTX"),
-         -TXI, -TXO) %>% 
-  #get rid of odd cases (such as disclaimer!)
-  filter(!is.na(mean)) %>% 
-  rename( "Name" = AirportName, 
-          "WTC" = WakeTurbulenceCategory,
-          "p10" = '10thPctl',
-          "p90" = '90thPctl',
-         "stDev" = StandardDeviation,
-         "median" = Median) %>% 
-  #in WTC data, airport details are not repeated so fill down
-  fill(ICAO, IATA, Name) %>% 
-  #create tidy WTC flag
-  mutate(hasWTC = if_else(is.na(WTC), F, T))
+  separate(text2, c("ICAO", "IATA", "Name", "mean", "stDev", "p10", "median", "p90"), sep="#") %>% 
+  #convert to numeric
+  mutate_at(vars("mean", "stDev", "p10", "median", "p90"), as.numeric) %>% 
+  #add the date details
+  #WTC is always false because we can't scrape them for the moment
+  mutate(id = as.integer(id),
+         hasWTC = F,
+         fileType = "pdf") %>% 
+  left_join(xld %>% select(id, fileType, yrtext, season, year, file)) %>% 
+  mutate(phase = if_else(str_detect(file, "out" ), "Out", "In")) %>% 
+  select(-text, -file)
 
 #now gather columns
 timb <- tim %>% 
+  bind_rows(timp) %>% 
   gather("measure", "time", c(5:8,14))
-
-#summarise details
-w <- data_frame(file=pdff, id=1:length(pdff)) %>% 
-  mutate(
-    season = case_when(
-      grepl("summer",file, ignore.case = T)|grepl("?-s[0:9]?",file, ignore.case = T) ~ "Summer",
-      T ~ "Winter"),
-    year = substr(gsub("([^[:digit:]]*)|(20)","",file),1,2),
-    #yr text is just the first letter of the season plus year digits, 2 digits, 4 digits could be 1516 
-    #caution this version not valid for years 2020 onwards!
-    yrtext = paste0(year, substr(season,1,1)))
 
 
 #---- First Graph
