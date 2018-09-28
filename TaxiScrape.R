@@ -14,6 +14,7 @@ library(pdftools)
 
 
 #---- Download the Files
+#if you've already done this, you can skip to the next section
 
 codapage <- read_html("https://www.eurocontrol.int/articles/coda-publications")
 #pull out all of the links
@@ -128,7 +129,8 @@ timp <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])  %>%
   #then split and label
   separate(text2, c("ICAO", "IATA", "Name", "mean", "stDev", "p10", "median", "p90"), sep="#") %>% 
   #convert to numeric
-  mutate_at(vars("mean", "stDev", "p10", "median", "p90"), as.numeric) %>% 
+  #make last-minute switch from European , as decimal point to .
+  mutate_at(vars("mean", "stDev", "p10", "median", "p90"), function(x)(as.numeric(str_replace(x, ",", ".")))) %>% 
   #add the date details
   #WTC is always false because we can't scrape them for the moment
   mutate(id = as.integer(id),
