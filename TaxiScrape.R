@@ -114,8 +114,8 @@ timp <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])  %>%
   #multiple spaces mark column boundaries
   #almost true, so start with that and tidy up after
   mutate(text = str_replace_all(text,"(\\s){2,}","#"),
-         #remove first # if any
-         text = str_replace(text, "^#", "")) %>%
+         #remove first # or leading space if any
+         text = str_replace(text, "^[#\\s]*", "")) %>%
   #if at this stage we've not 7 #, then change the first space to a #
   mutate(text2 = if_else(str_count(text, "#")==7, 
                          text,
@@ -141,15 +141,24 @@ timp <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])  %>%
 #now gather columns
 timb <- tim %>% 
   bind_rows(timp) %>% 
-  gather("measure", "time", c(5:8,14))
+  gather("measure", "time", c(5:8,14)) %>% 
+  #multiple spelling (upcase lower case) of the full airport name, so focus on one
+  #the first one is the one with more lower case
+  group_by(ICAO, IATA) %>% 
+  arrange(ICAO, IATA, Name) %>% 
+  mutate(Name = first(Name)) %>% 
+  #finally sort by time, for neatness
+  arrange(ICAO, IATA, yrtext)
 
 
 #---- First Graph
 
-
+AP_large <- c("LHR", "CDG", "AMS", "FRA", "MAD")
+AP_ran <- sample(unique(timp$IATA), 6)
 ggplot(timb %>% filter(hasWTC == F, 
-                       IATA %in% c("LHR", "CDG", "AMS", "FRA", "MAD"),
+                       IATA %in% AP_ran,
                        measure != "stDev"),
-       aes(year, time, colour = measure)) +
-  geom_point() + xlab("Season") + ylab("Taxi Time (mins)") +
+       aes(year, time, colour = measure, shape = season)) +
+  geom_point() +  
+  xlab("Season") + ylab("Taxi Time (mins)") +
   facet_grid(IATA~phase*season)
