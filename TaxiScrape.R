@@ -94,8 +94,7 @@ tim <- tim %>%
   #in WTC data, airport details are not repeated so fill down
   fill(ICAO, IATA, Name) %>% 
   #create tidy WTC flag
-  mutate(hasWTC = if_else(is.na(WTC), F, T)) %>% 
-  select(-WTC)
+  mutate(hasWTC = if_else(is.na(WTC), F, T)) 
 
 
 #we need to extract pdf text, and convert to dataframe for map_dfr to work cleanly
@@ -143,7 +142,7 @@ timp <- paste0("data/", xld$file[xld$fileType == "pdf" & !xld$wake])  %>%
 #now gather columns
 timb <- tim %>% 
   bind_rows(timp) %>% 
-  gather("measure", "time", c(5:8,14)) %>% 
+  gather("measure", "time", c(5:8,15)) %>% 
   #multiple spelling (upcase lower case) of the full airport name, so focus on one
   #the first one is the one with more lower case
   group_by(ICAO, IATA) %>% 
@@ -158,9 +157,17 @@ timb <- tim %>%
 AP_large <- c("LHR", "CDG", "AMS", "FRA", "MAD")
 AP_ran <- sample(unique(timp$IATA), 6)
 ggplot(timb %>% filter(hasWTC == F, 
-                       IATA %in% AP_ran,
+                       IATA %in% AP_large,
                        measure != "stDev"),
        aes(year, time, colour = measure, shape = season)) +
   geom_point() +  
-  xlab("Season") + ylab("Taxi Time (mins)") +
+  xlab("Year") + ylab("Taxi Time (mins)") +
   facet_grid(IATA~phase*season)
+
+#---- Save and export
+saveRDS(timb, "data/tidytaxitimes.RDS")
+
+#also export for export
+write.csv(timb, "data/tidytaxitimes.csv",
+          row.names = F)
+#for Tableau, untidy can be better
