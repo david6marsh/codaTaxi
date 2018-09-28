@@ -171,3 +171,6 @@ saveRDS(timb, "data/tidytaxitimes.RDS")
 write.csv(timb, "data/tidytaxitimes.csv",
           row.names = F)
 #for Tableau, untidy can be better
+write.csv(spread(timb, measure, time),
+          "data/untidytaxitimes.csv",
+          row.names = F)
