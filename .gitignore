@@ -8,3 +8,5 @@ data/*.xlsx
 data/*.pdf
 #exclude created data files
 #to avoid clogging up the repo with them
+data/*.csv
+data/*.RDS
